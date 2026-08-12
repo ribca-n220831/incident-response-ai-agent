@@ -1,0 +1,221 @@
+{
+  "name": "Incident Response Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "options": {
+          "inputPlaceholder": "Describe the incident or paste the error logs...",
+          "subtitle": "I remember how we fixed similar incidents before.",
+          "title": "Incident Response Agent",
+          "responseMode": "lastNode"
+        }
+      },
+      "id": "7aefce5a-fd85-4da0-aa93-fe89a2f15819",
+      "name": "Incident Chat",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        112
+      ],
+      "webhookId": "8a4be408-98e7-4e05-b87c-8bd2b825f381"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hindsight.vectorize.io/v1/default/banks/incident-response/memories/recall",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.chatInput, types: [\"world\",\"experience\",\"observation\"], prefer_observations: true, budget: \"high\", max_tokens: 3000 }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "a70533d2-9674-454b-ad75-8325b0c0e4e6",
+      "name": "Recall Similar Incidents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        64,
+        304
+      ],
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "id": "x3c15k953vtAO8H1",
+          "name": "Hindsight Cloud API (Asodu R)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=CURRENT INCIDENT (from the responder):\n{{ $('Incident Chat').item.json.chatInput }}\n\nRELEVANT PAST INCIDENTS RECALLED FROM MEMORY (JSON):\n{{ JSON.stringify(($json.results || []).map(r => r.text)) }}",
+        "options": {
+          "systemMessage": "You are an SRE Incident Response Agent for a production engineering team.\nWhen production is down, every minute counts. Your job is to recall exactly how\nsimilar incidents were resolved before and suggest the fastest proven fix.\n\nYou are given the CURRENT INCIDENT and a list of RELEVANT PAST INCIDENTS already\nretrieved from long-term memory (Hindsight). Use them as follows:\n1. If any past incident is relevant, LEAD with it: cite the incident id/title, its\n   root cause, the resolution steps that worked, and the runbook that applied\n   (and mention any runbook that did NOT help).\n2. Then give a concise, prioritised action plan for the current incident.\n3. If the past-incidents list is empty or nothing is relevant, say so plainly and\n   give best-practice SRE guidance instead.\n\nYou also have one tool:\n- remember_incident: after the user confirms a resolution or shares a post-mortem,\n  call it to store the incident so the team gets faster next time.\n\nBe concise and operational. Prefer bullet points and clear next steps.\nNever invent a past incident that was not provided in the recalled list.",
+          "maxIterations": 10
+        }
+      },
+      "id": "ca421087-d411-40c2-aaf9-f1f675ae1901",
+      "name": "Incident Response Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        352,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "8550dc7d-2b5d-42ae-a4e3-7558e67270cf",
+      "name": "Groq Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        224,
+        336
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "TqEGMi6uLFx10Qnu",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Incident Chat').item.json.sessionId }}",
+        "contextWindowLength": 12
+      },
+      "id": "bd8a6062-1687-45c6-8124-73da40bc00e4",
+      "name": "Conversation Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        352,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Store a new incident or post-mortem into long-term memory so future similar incidents can be resolved faster. Use this when the user reports a NEW incident with details, or shares how an incident was resolved. Pass ONE argument, postmortem: a full post-mortem style summary that includes the affected service, severity, symptoms, root cause, resolution steps, and which runbook worked.",
+        "method": "POST",
+        "url": "https://api.hindsight.vectorize.io/v1/default/banks/incident-response/memories",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"items\": [\n    {\n      \"content\": \"{postmortem}\",\n      \"context\": \"incident post-mortem\"\n    }\n  ],\n  \"async\": false\n}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "postmortem",
+              "description": "Full post-mortem text as a single string: include the service name, severity (SEV1/SEV2/SEV3), title, symptoms, root cause, resolution steps, and which runbook worked",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "08371d5d-ce41-485d-8542-4aaac927db7d",
+      "name": "remember_incident",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        336
+      ],
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "id": "x3c15k953vtAO8H1",
+          "name": "Hindsight Cloud API (Asodu R)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Incident Chat": {
+      "main": [
+        [
+          {
+            "node": "Recall Similar Incidents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recall Similar Incidents": {
+      "main": [
+        [
+          {
+            "node": "Incident Response Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Incident Response Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Incident Response Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "remember_incident": {
+      "ai_tool": [
+        [
+          {
+            "node": "Incident Response Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "cf913ff8-d334-4baf-9f91-c5e603403bf1",
+  "meta": {
+    "instanceId": "0c96a6c3fecdab33509fa7e1d8edce0ceb9f6e7357b139a7073308c7a12d3acb"
+  },
+  "nodeGroups": [],
+  "id": "FEOcNyNoLeysrpfO",
+  "tags": []
+}
